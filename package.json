@@ -1,0 +1,25 @@
+{
+  "name": "penalty-kick-game",
+  "version": "1.0.0",
+  "description": "A fun penalty kick game with slingshot mechanics",
+  "main": "index.html",
+  "scripts": {
+    "start": "serve .",
+    "build": "cp -r * dist/ || true"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/penalty-kick-game.git"
+  },
+  "keywords": [
+    "game",
+    "soccer",
+    "penalty",
+    "p5js"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "serve": "^14.2.1"
+  }
+} 

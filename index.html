@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Penalty Kick Game</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script src="https://unpkg.com/tone@14.7.77/build/Tone.js"></script>
+</head>
+<body>
+    <div class="game-container">
+        <div id="game-canvas"></div>
+        <div class="game-ui">
+            <div class="score-board">
+                <div class="score">
+                    <span id="player-score">0</span>
+                    <span>:</span>
+                    <span id="goalkeeper-score">0</span>
+                </div>
+                <div class="attempts">
+                    <span>Attempts: </span>
+                    <span id="attempts">0/5</span>
+                </div>
+            </div>
+            <div class="controls">
+                <button id="start-btn">Start Game</button>
+                <div class="shot-info">
+                    <div class="power-display">
+                        <span>Power: </span>
+                        <span id="power-value">0%</span>
+                    </div>
+                    <div class="angle-display">
+                        <span>Angle: </span>
+                        <span id="angle-value">0°</span>
+                    </div>
+                </div>
+            </div>
+            <div class="game-message" id="game-message"></div>
+        </div>
+    </div>
+    <script type="module" src="js/main.js"></script>
+</body>
+</html> 

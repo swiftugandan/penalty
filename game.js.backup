@@ -1,0 +1,723 @@
+// Game state variables
+let gameState = {
+    isGameStarted: false,
+    isDragging: false,
+    canShoot: false,
+    playerScore: 0,
+    goalkeeperScore: 0,
+    attempts: 0,
+    maxAttempts: 5,
+    gameOver: false,
+    dragStartX: 0,
+    dragStartY: 0,
+    dragCurrentX: 0,
+    dragCurrentY: 0,
+    power: 0,
+    angle: 0,
+    maxDragDistance: 150
+};
+
+// Game elements
+let ball;
+let goalkeeper;
+let goal;
+let field;
+
+// DOM elements
+const startBtn = document.getElementById('start-btn');
+const playerScoreEl = document.getElementById('player-score');
+const goalkeeperScoreEl = document.getElementById('goalkeeper-score');
+const attemptsEl = document.getElementById('attempts');
+const gameMessageEl = document.getElementById('game-message');
+const powerValueEl = document.getElementById('power-value');
+const angleValueEl = document.getElementById('angle-value');
+
+// Initialize event listeners
+startBtn.addEventListener('click', startGame);
+
+// p5.js sketch
+let sketch = function(p) {
+    // Constants for the game
+    const FIELD_COLOR = p.color(124, 252, 0);
+    const GOAL_COLOR = p.color(255, 255, 255);
+    const GOAL_POST_COLOR = p.color(200, 200, 200);
+    const BALL_COLOR = p.color(255, 255, 255);
+    const BALL_OUTLINE_COLOR = p.color(0, 0, 0);
+    const GOALKEEPER_COLOR = p.color(255, 0, 0);
+    const SLINGSHOT_COLOR = p.color(255, 0, 0, 180);
+    
+    // Animation variables
+    let ballAnimation = null;
+    let goalkeeperAnimation = null;
+    
+    p.setup = function() {
+        // Create canvas inside the game-canvas div
+        let canvas = p.createCanvas(800, 400);
+        canvas.parent('game-canvas');
+        
+        // Initialize game objects
+        field = new Field();
+        goal = new Goal();
+        goalkeeper = new Goalkeeper();
+        ball = new Ball();
+        
+        // Set initial text properties
+        p.textAlign(p.CENTER, p.CENTER);
+        p.textSize(24);
+        
+        // Display initial game state
+        updateGameDisplay();
+        
+        // Display initial message
+        displayMessage("Click Start Game to begin!");
+    };
+    
+    p.draw = function() {
+        // Draw the game scene
+        field.display();
+        goal.display();
+        
+        // Update and display animations if active
+        if (ballAnimation) {
+            ballAnimation.update();
+            if (ballAnimation.isComplete()) {
+                ballAnimation = null;
+                checkGoal();
+            }
+        }
+        
+        if (goalkeeperAnimation) {
+            goalkeeperAnimation.update();
+            if (goalkeeperAnimation.isComplete()) {
+                goalkeeperAnimation = null;
+            }
+        }
+        
+        // Display game objects
+        goalkeeper.display();
+        
+        // Draw slingshot line if dragging
+        if (gameState.isDragging && gameState.canShoot) {
+            drawSlingshotLine();
+            drawTrajectoryPreview();
+        }
+        
+        // Always draw the ball last so it appears on top
+        ball.display();
+    };
+    
+    // p5.js built-in mouse event handlers
+    p.mousePressed = function() {
+        if (gameState.isGameStarted && !gameState.gameOver && gameState.canShoot && !ballAnimation) {
+            // Check if mouse is over the canvas
+            if (p.mouseX >= 0 && p.mouseX <= p.width && p.mouseY >= 0 && p.mouseY <= p.height) {
+                // Check if mouse is over the ball
+                const d = p.dist(p.mouseX, p.mouseY, ball.x, ball.y);
+                if (d < ball.radius * 1.5) {
+                    gameState.isDragging = true;
+                    gameState.dragStartX = ball.x;
+                    gameState.dragStartY = ball.y;
+                    gameState.dragCurrentX = ball.x;
+                    gameState.dragCurrentY = ball.y;
+                    
+                    // Add dragging class to canvas for cursor change
+                    document.getElementById('game-canvas').classList.add('dragging');
+                }
+            }
+        }
+    };
+    
+    p.mouseDragged = function() {
+        if (gameState.isDragging && gameState.canShoot) {
+            gameState.dragCurrentX = p.mouseX;
+            gameState.dragCurrentY = p.mouseY;
+            
+            // Calculate distance and limit it
+            const dx = gameState.dragStartX - gameState.dragCurrentX;
+            const dy = gameState.dragStartY - gameState.dragCurrentY;
+            const distance = p.sqrt(dx * dx + dy * dy);
+            
+            if (distance > gameState.maxDragDistance) {
+                // Limit the drag distance
+                const angle = p.atan2(dy, dx);
+                gameState.dragCurrentX = gameState.dragStartX - p.cos(angle) * gameState.maxDragDistance;
+                gameState.dragCurrentY = gameState.dragStartY - p.sin(angle) * gameState.maxDragDistance;
+            }
+            
+            // Calculate power based on distance (0-100%)
+            const maxDistance = gameState.maxDragDistance;
+            const currentDistance = p.dist(gameState.dragStartX, gameState.dragStartY, 
+                                          gameState.dragCurrentX, gameState.dragCurrentY);
+            gameState.power = p.map(currentDistance, 0, maxDistance, 0, 100);
+            
+            // Calculate angle in degrees (0 is right, 90 is up)
+            // Use the opposite direction of the drag for the shot direction
+            const dx2 = gameState.dragStartX - gameState.dragCurrentX;
+            const dy2 = gameState.dragStartY - gameState.dragCurrentY;
+            gameState.angle = p.degrees(p.atan2(dy2, dx2));
+            
+            // Update UI
+            powerValueEl.textContent = `${Math.round(gameState.power)}%`;
+            angleValueEl.textContent = `${Math.round(gameState.angle)}°`;
+        }
+    };
+    
+    p.mouseReleased = function() {
+        if (gameState.isDragging && gameState.canShoot) {
+            // Remove dragging class
+            document.getElementById('game-canvas').classList.remove('dragging');
+            
+            // Take the shot if power is above threshold
+            if (gameState.power > 5) {
+                takeShot();
+            }
+            
+            gameState.isDragging = false;
+        }
+    };
+    
+    function drawSlingshotLine() {
+        p.push();
+        p.stroke(SLINGSHOT_COLOR);
+        p.strokeWeight(3);
+        p.setLineDash([5, 5]);
+        p.line(gameState.dragStartX, gameState.dragStartY, gameState.dragCurrentX, gameState.dragCurrentY);
+        p.pop();
+    }
+    
+    function drawTrajectoryPreview() {
+        if (gameState.power < 5) return;
+        
+        p.push();
+        p.stroke(255, 255, 255, 80);
+        p.strokeWeight(2);
+        p.setLineDash([5, 5]);
+        p.noFill();
+        
+        // Calculate trajectory preview points
+        // Use the opposite direction of the drag for the shot direction
+        const dx = gameState.dragStartX - gameState.dragCurrentX;
+        const dy = gameState.dragStartY - gameState.dragCurrentY;
+        const power = gameState.power / 100;
+        const angle = p.radians(gameState.angle);
+        
+        // Calculate control point for the curve based on angle and power
+        const controlX = gameState.dragStartX + Math.cos(angle) * 100;
+        const controlY = gameState.dragStartY + Math.sin(angle) * 100 - 100 * power;
+        
+        // Calculate end point based on angle and power
+        const distance = gameState.power * 4; // Scale for visual effect
+        const endX = gameState.dragStartX + Math.cos(angle) * distance;
+        const endY = gameState.dragStartY + Math.sin(angle) * distance;
+        
+        // Draw a bezier curve to preview trajectory
+        p.beginShape();
+        p.vertex(gameState.dragStartX, gameState.dragStartY);
+        
+        // Draw curve with points
+        for (let t = 0; t <= 1; t += 0.05) {
+            const x = p.bezierPoint(gameState.dragStartX, controlX, controlX, endX, t);
+            const y = p.bezierPoint(gameState.dragStartY, controlY, controlY, endY, t);
+            p.vertex(x, y);
+        }
+        
+        p.endShape();
+        p.pop();
+    }
+    
+    // Helper function to set line dash in p5.js
+    p.setLineDash = function(list) {
+        p.drawingContext.setLineDash(list);
+    };
+    
+    // Field class
+    function Field() {
+        this.display = function() {
+            p.background(FIELD_COLOR);
+            
+            // Draw field markings
+            p.stroke(255);
+            p.strokeWeight(2);
+            p.noFill();
+            
+            // Penalty area
+            p.rect(p.width/4, p.height/6, p.width/2, p.height*2/3);
+            
+            // Center circle
+            p.ellipse(p.width/2, p.height/2, p.width/4, p.width/4);
+            
+            // Center line
+            p.line(p.width/2, 0, p.width/2, p.height);
+            
+            // Penalty spot
+            p.fill(255);
+            p.ellipse(p.width/2, p.height*3/4, 10, 10);
+        };
+    }
+    
+    // Goal class
+    function Goal() {
+        this.width = p.width * 0.5;
+        this.height = p.height * 0.3;
+        this.x = p.width/2 - this.width/2;
+        this.y = p.height * 0.1;
+        this.postWidth = 10;
+        
+        // Define goal zones (9 zones in a 3x3 grid)
+        this.zones = [];
+        const zoneWidth = this.width / 3;
+        const zoneHeight = this.height / 3;
+        
+        for (let row = 0; row < 3; row++) {
+            for (let col = 0; col < 3; col++) {
+                this.zones.push({
+                    x: this.x + col * zoneWidth,
+                    y: this.y + row * zoneHeight,
+                    width: zoneWidth,
+                    height: zoneHeight,
+                    direction: getDirectionFromPosition(row, col)
+                });
+            }
+        }
+        
+        this.display = function() {
+            // Draw goal net
+            p.fill(GOAL_COLOR);
+            p.stroke(150);
+            p.strokeWeight(1);
+            p.rect(this.x, this.y, this.width, this.height);
+            
+            // Draw goal posts
+            p.fill(GOAL_POST_COLOR);
+            p.noStroke();
+            // Left post
+            p.rect(this.x - this.postWidth/2, this.y - this.postWidth/2, this.postWidth, this.height + this.postWidth);
+            // Right post
+            p.rect(this.x + this.width - this.postWidth/2, this.y - this.postWidth/2, this.postWidth, this.height + this.postWidth);
+            // Crossbar
+            p.rect(this.x - this.postWidth/2, this.y - this.postWidth/2, this.width + this.postWidth, this.postWidth);
+            
+            // Draw net lines
+            p.stroke(200);
+            p.strokeWeight(1);
+            
+            // Vertical lines
+            for (let i = 1; i < 3; i++) {
+                const x = this.x + (this.width / 3) * i;
+                p.line(x, this.y, x, this.y + this.height);
+            }
+            
+            // Horizontal lines
+            for (let i = 1; i < 3; i++) {
+                const y = this.y + (this.height / 3) * i;
+                p.line(this.x, y, this.x + this.width, y);
+            }
+        };
+        
+        // Helper function to get direction name from position
+        function getDirectionFromPosition(row, col) {
+            const rowNames = ['top', 'middle', 'bottom'];
+            const colNames = ['left', 'center', 'right'];
+            return `${rowNames[row]}-${colNames[col]}`;
+        }
+    }
+    
+    // Goalkeeper class
+    function Goalkeeper() {
+        this.width = 60;
+        this.height = 80;
+        this.x = p.width/2 - this.width/2;
+        this.y = p.height * 0.2;
+        this.targetX = this.x;
+        this.targetY = this.y;
+        
+        this.display = function() {
+            p.fill(GOALKEEPER_COLOR);
+            p.noStroke();
+            
+            // Draw goalkeeper body
+            p.ellipse(this.x + this.width/2, this.y + this.height/4, this.width, this.height/2);
+            
+            // Draw goalkeeper head
+            p.ellipse(this.x + this.width/2, this.y, this.width/3, this.width/3);
+            
+            // Draw goalkeeper arms
+            p.rect(this.x, this.y + this.height/6, this.width, this.height/10, 5);
+        };
+        
+        this.moveToZone = function(zone) {
+            this.targetX = zone.x + zone.width/2 - this.width/2;
+            this.targetY = zone.y + zone.height/2 - this.height/4;
+            
+            goalkeeperAnimation = new Animation(
+                this, 
+                { x: this.x, y: this.y }, 
+                { x: this.targetX, y: this.targetY }, 
+                500
+            );
+        };
+        
+        this.predictShot = function() {
+            // Goalkeeper AI - decides where to move based on player's shot
+            // Higher power shots are harder to save
+            const difficultyFactor = gameState.power / 100;
+            const randomFactor = p.random();
+            
+            // Calculate where the ball will likely end up based on angle
+            const angle = p.radians(gameState.angle);
+            const distance = gameState.power * 4;
+            const targetX = ball.originalX + Math.cos(angle) * distance;
+            const targetY = ball.originalY + Math.sin(angle) * distance;
+            
+            // Find the closest zone to the predicted landing spot
+            let closestZone = goal.zones[4]; // Default to middle-center
+            let closestDistance = Number.MAX_VALUE;
+            
+            goal.zones.forEach(zone => {
+                const zoneX = zone.x + zone.width/2;
+                const zoneY = zone.y + zone.height/2;
+                const dist = p.dist(targetX, targetY, zoneX, zoneY);
+                
+                if (dist < closestDistance) {
+                    closestDistance = dist;
+                    closestZone = zone;
+                }
+            });
+            
+            // If random factor is less than difficulty, goalkeeper moves to a different zone
+            if (randomFactor < difficultyFactor) {
+                // Goalkeeper guesses wrong - pick a different zone
+                const zones = goal.zones.filter(z => z !== closestZone);
+                return zones[Math.floor(p.random(zones.length))];
+            } else {
+                // Goalkeeper guesses correctly
+                return closestZone;
+            }
+        };
+    }
+    
+    // Ball class
+    function Ball() {
+        this.radius = 15;
+        this.x = p.width/2;
+        this.y = p.height * 0.75;
+        this.originalX = this.x;
+        this.originalY = this.y;
+        
+        this.display = function() {
+            // If dragging, update ball position
+            if (gameState.isDragging && gameState.canShoot) {
+                // Ball follows the mouse with a spring effect
+                this.x = p.lerp(this.x, gameState.dragCurrentX, 0.5);
+                this.y = p.lerp(this.y, gameState.dragCurrentY, 0.5);
+            }
+            
+            // Draw ball shadow
+            p.fill(0, 0, 0, 30);
+            p.noStroke();
+            p.ellipse(this.x, this.y + 5, this.radius * 2, this.radius * 0.5);
+            
+            // Draw ball
+            p.fill(BALL_COLOR);
+            p.stroke(BALL_OUTLINE_COLOR);
+            p.strokeWeight(1);
+            p.ellipse(this.x, this.y, this.radius * 2, this.radius * 2);
+            
+            // Draw ball details
+            p.stroke(BALL_OUTLINE_COLOR);
+            p.strokeWeight(1);
+            p.line(this.x - this.radius, this.y, this.x + this.radius, this.y);
+            p.line(this.x, this.y - this.radius, this.x, this.y + this.radius);
+            p.arc(this.x, this.y, this.radius * 1.5, this.radius * 1.5, p.PI/4, p.PI/4*3);
+            p.arc(this.x, this.y, this.radius * 1.5, this.radius * 1.5, p.PI/4*5, p.PI/4*7);
+        };
+        
+        this.reset = function() {
+            this.x = this.originalX;
+            this.y = this.originalY;
+        };
+        
+        this.kick = function() {
+            // Calculate end point based on angle and power
+            const angle = p.radians(gameState.angle);
+            const distance = gameState.power * 4;
+            const endX = this.originalX + Math.cos(angle) * distance;
+            const endY = this.originalY + Math.sin(angle) * distance;
+            
+            // Calculate control point for the curve based on angle and power
+            const controlX = this.originalX + Math.cos(angle) * 100;
+            const controlY = this.originalY + Math.sin(angle) * 100 - 100 * (gameState.power / 100);
+            
+            ballAnimation = new BezierAnimation(
+                this,
+                { x: this.originalX, y: this.originalY },
+                { x: endX, y: endY },
+                { x: controlX, y: controlY },
+                1000 - gameState.power * 5 // Faster with more power
+            );
+        };
+    }
+    
+    // Animation class for linear movement
+    function Animation(object, start, end, duration) {
+        this.object = object;
+        this.start = start;
+        this.end = end;
+        this.duration = duration;
+        this.startTime = p.millis();
+        
+        this.update = function() {
+            const elapsed = p.millis() - this.startTime;
+            const progress = Math.min(elapsed / this.duration, 1);
+            
+            // Linear interpolation
+            this.object.x = this.start.x + (this.end.x - this.start.x) * progress;
+            this.object.y = this.start.y + (this.end.y - this.start.y) * progress;
+        };
+        
+        this.isComplete = function() {
+            return p.millis() - this.startTime >= this.duration;
+        };
+    }
+    
+    // Bezier animation for curved ball movement
+    function BezierAnimation(object, start, end, control, duration) {
+        this.object = object;
+        this.start = start;
+        this.end = end;
+        this.control = control;
+        this.duration = duration;
+        this.startTime = p.millis();
+        
+        this.update = function() {
+            const elapsed = p.millis() - this.startTime;
+            const progress = Math.min(elapsed / this.duration, 1);
+            
+            // Quadratic Bezier curve
+            this.object.x = Math.pow(1 - progress, 2) * this.start.x + 
+                           2 * (1 - progress) * progress * this.control.x + 
+                           Math.pow(progress, 2) * this.end.x;
+                           
+            this.object.y = Math.pow(1 - progress, 2) * this.start.y + 
+                           2 * (1 - progress) * progress * this.control.y + 
+                           Math.pow(progress, 2) * this.end.y;
+                           
+            // Scale ball based on height to create perspective
+            const normalizedHeight = 1 - (this.object.y - goal.y) / (this.start.y - goal.y);
+            this.object.radius = 15 * (0.8 + normalizedHeight * 0.2);
+        };
+        
+        this.isComplete = function() {
+            return p.millis() - this.startTime >= this.duration;
+        };
+    }
+    
+    // Helper function to get target zone based on angle
+    function getTargetZoneFromAngle(angle) {
+        if (!goal || !goal.zones || goal.zones.length === 0) {
+            return null; // Safety check
+        }
+        
+        // Normalize angle to 0-360
+        while (angle < 0) angle += 360;
+        angle = angle % 360;
+        
+        // Map angle ranges to zones
+        // Top row
+        if (angle >= 30 && angle < 60) return goal.zones[0]; // top-left
+        if (angle >= 60 && angle < 120) return goal.zones[1]; // top-center
+        if (angle >= 120 && angle < 150) return goal.zones[2]; // top-right
+        
+        // Middle row
+        if (angle >= 0 && angle < 30) return goal.zones[3]; // middle-left
+        if (angle >= 330 && angle < 360) return goal.zones[5]; // middle-right
+        
+        // Bottom row
+        if (angle >= 210 && angle < 240) return goal.zones[6]; // bottom-left
+        if (angle >= 180 && angle < 210) return goal.zones[7]; // bottom-center
+        if (angle >= 240 && angle < 270) return goal.zones[8]; // bottom-right
+        
+        // Default to middle-center for any other angle
+        return goal.zones[4]; // middle-center
+    }
+    
+    // Check if the ball scored a goal
+    function checkGoal() {
+        // Find the zone where the ball ended up
+        const targetZone = goal.zones.find(zone => 
+            ball.x >= zone.x && 
+            ball.x <= zone.x + zone.width && 
+            ball.y >= zone.y && 
+            ball.y <= zone.y + zone.height
+        );
+        
+        // Check if goalkeeper saved the shot
+        const goalkeeperSaved = 
+            ball.x >= goalkeeper.x && 
+            ball.x <= goalkeeper.x + goalkeeper.width && 
+            ball.y >= goalkeeper.y && 
+            ball.y <= goalkeeper.y + goalkeeper.height;
+        
+        gameState.attempts++;
+        
+        if (goalkeeperSaved) {
+            // Goalkeeper saved
+            gameState.goalkeeperScore++;
+            displayMessage("Saved by the goalkeeper!");
+        } else if (targetZone) {
+            // Goal scored
+            gameState.playerScore++;
+            displayMessage("GOAL!");
+        } else {
+            // Shot missed
+            gameState.goalkeeperScore++;
+            displayMessage("Shot missed!");
+        }
+        
+        updateGameDisplay();
+        
+        // Check if game is over
+        if (gameState.attempts >= gameState.maxAttempts) {
+            endGame();
+        } else {
+            // Reset for next shot
+            setTimeout(() => {
+                resetShot();
+            }, 2000);
+        }
+    }
+    
+    // Game functions inside the p5 sketch
+    window.takeShot = function() {
+        // Disable shooting
+        gameState.canShoot = false;
+        
+        // Goalkeeper predicts and moves
+        const goalkeeperTargetZone = goalkeeper.predictShot();
+        goalkeeper.moveToZone(goalkeeperTargetZone);
+        
+        // Reset ball position before animation
+        ball.x = ball.originalX;
+        ball.y = ball.originalY;
+        
+        // Kick the ball using angle and power
+        ball.kick();
+        
+        // Disable controls during animation
+        startBtn.disabled = true;
+        
+        // Reset power and angle display
+        powerValueEl.textContent = "0%";
+        angleValueEl.textContent = "0°";
+    };
+    
+    window.resetShot = function() {
+        // Reset ball position
+        ball.reset();
+        
+        // Reset goalkeeper position
+        goalkeeper.x = goalkeeper.targetX = (goal.x + goal.width/2) - goalkeeper.width/2;
+        goalkeeper.y = goalkeeper.targetY = goal.y + goal.height/2 - goalkeeper.height/4;
+        
+        // Reset controls
+        gameState.canShoot = true;
+        gameState.isDragging = false;
+        gameState.power = 0;
+        gameState.angle = 0;
+        
+        // Reset UI
+        powerValueEl.textContent = "0%";
+        angleValueEl.textContent = "0°";
+        startBtn.textContent = "Reset Shot";
+        startBtn.disabled = false;
+        
+        displayMessage(`Attempt ${gameState.attempts + 1}/${gameState.maxAttempts}`);
+    };
+};
+
+// Create the p5 instance
+new p5(sketch);
+
+// Game functions
+function startGame() {
+    if (gameState.gameOver) {
+        // Reset game if it's over
+        resetGame();
+    }
+    
+    if (!gameState.isGameStarted) {
+        gameState.isGameStarted = true;
+        gameState.canShoot = true;
+        startBtn.textContent = "Reset Shot";
+        displayMessage("Drag the ball and release to shoot!");
+    } else if (gameState.canShoot && !gameState.isDragging) {
+        // Reset the current shot
+        resetShot();
+    }
+}
+
+function takeShot() {
+    // Call the takeShot function inside the p5 sketch
+    window.takeShot();
+}
+
+function resetShot() {
+    // Call the resetShot function inside the p5 sketch
+    window.resetShot();
+}
+
+function endGame() {
+    gameState.gameOver = true;
+    gameState.canShoot = false;
+    startBtn.textContent = "Play Again";
+    startBtn.disabled = false;
+    
+    if (gameState.playerScore > gameState.goalkeeperScore) {
+        displayMessage("Game Over! You win!");
+    } else if (gameState.playerScore < gameState.goalkeeperScore) {
+        displayMessage("Game Over! Goalkeeper wins!");
+    } else {
+        displayMessage("Game Over! It's a draw!");
+    }
+}
+
+function resetGame() {
+    gameState.isGameStarted = false;
+    gameState.isDragging = false;
+    gameState.canShoot = false;
+    gameState.playerScore = 0;
+    gameState.goalkeeperScore = 0;
+    gameState.attempts = 0;
+    gameState.gameOver = false;
+    gameState.power = 0;
+    gameState.angle = 0;
+    
+    // Reset UI
+    powerValueEl.textContent = "0%";
+    angleValueEl.textContent = "0°";
+    startBtn.textContent = "Start Game";
+    
+    // Reset game display
+    updateGameDisplay();
+    displayMessage("Click Start Game to begin!");
+    
+    // Reset ball and goalkeeper
+    if (ball && ball.reset) {
+        ball.reset();
+    }
+    
+    if (goalkeeper && goal) {
+        goalkeeper.x = goalkeeper.targetX = (goal.x + goal.width/2) - goalkeeper.width/2;
+        goalkeeper.y = goalkeeper.targetY = goal.y + goal.height/2 - goalkeeper.height/4;
+    }
+}
+
+function updateGameDisplay() {
+    playerScoreEl.textContent = gameState.playerScore;
+    goalkeeperScoreEl.textContent = gameState.goalkeeperScore;
+    attemptsEl.textContent = `${gameState.attempts}/${gameState.maxAttempts}`;
+}
+
+function displayMessage(message) {
+    gameMessageEl.textContent = message;
+} 
