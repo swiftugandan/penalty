@@ -1,5 +1,5 @@
 {
-  "name": "penalty-kick-game",
+  "name": "penalty",
   "version": "1.0.0",
   "description": "A fun penalty kick game with slingshot mechanics",
   "main": "index.html",
@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourusername/penalty-kick-game.git"
+    "url": "git+https://github.com/swiftugandan/penalty.git"
   },
   "keywords": [
     "game",
